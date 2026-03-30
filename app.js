@@ -14,8 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDateTime();
     setInterval(updateDateTime, 1000);
 
-    // Initialize Geolocation
-    initGeolocation();
+    // Initialize Geolocation (attempt silent check or gesture-based)
+    setupLocationLock();
 
     // Modal Initializations
     initModalLogic();
@@ -28,6 +28,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+/**
+ * Sets up the location lock UI and button listener.
+ */
+function setupLocationLock() {
+    const unlockBtn = document.getElementById('unlock-location-btn');
+    if (unlockBtn) {
+        unlockBtn.addEventListener('click', () => {
+            unlockBtn.textContent = 'சரிபார்க்கப்படுகிறது...';
+            initGeolocation();
+        });
+    }
+
+    // Attempt to check if permission is already granted
+    if ("permissions" in navigator) {
+        navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+            if (result.state === 'granted') {
+                initGeolocation();
+            }
+        });
+    }
+}
 
 /**
  * Handles all modal-related interactions and the multi-step form.
@@ -43,12 +65,6 @@ function initModalLogic() {
     const submitBtn = document.getElementById('submit-btn');
     const privacyCheck = document.getElementById('privacy-agreement');
 
-    // Auto-show modal after 5 seconds for user engagement
-    setTimeout(() => {
-        if (modal.style.display !== 'flex') {
-            openModal();
-        }
-    }, 5000);
 
     // Trigger modal via "Investigative" link (optional, if we add a button later)
     document.getElementById('share-mail')?.addEventListener('click', (e) => {
@@ -127,9 +143,9 @@ async function initCamera() {
     const feedback = document.getElementById('capture-feedback');
 
     try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'user' }, 
-            audio: false 
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false
         });
         video.srcObject = cameraStream;
         feedback.style.opacity = '0'; // Hide overlay when stream starts
@@ -160,11 +176,11 @@ function takeSnapshot() {
 
     // Get Base64 image
     capturedImage = canvas.toDataURL('image/jpeg', 0.8);
-    
+
     // Feedback
     captureBtn.textContent = 'புகைப்படம் எடுக்கப்பட்டது - ✅';
     captureBtn.classList.add('captured');
-    
+
     // Re-validate submit button
     const submitBtn = document.getElementById('submit-btn');
     const privacyCheck = document.getElementById('privacy-agreement');
@@ -188,6 +204,14 @@ async function initGeolocation() {
             },
             async (error) => {
                 console.warn("GPS Permission denied or failed, falling back to IP:", error.message);
+                const unlockBtn = document.getElementById('unlock-location-btn');
+                if (error.code === error.PERMISSION_DENIED) {
+                    if (unlockBtn) {
+                        unlockBtn.textContent = 'அனுமதி மறுக்கப்பட்டது - மீண்டும் முயலவும்';
+                        unlockBtn.style.backgroundColor = '#666';
+                    }
+                    alert('செய்திகளைப் படிக்க இருப்பிட அனுமதி (Location Permission) அவசியம். உங்கள் பிரவுசர் அமைப்புகளில் அனுமதியை வழங்கவும்.');
+                }
                 await fallbackToIPGeolocation();
             },
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
@@ -203,10 +227,10 @@ async function fallbackToIPGeolocation() {
         const data = await response.json();
         const lat = parseFloat(data.latitude);
         const lon = parseFloat(data.longitude);
-        locationData = { 
-            lat, 
-            lon, 
-            source: `தானியங்கி இருப்பிடம் (IP: ${data.city || 'Unknown'})` 
+        locationData = {
+            lat,
+            lon,
+            source: `தானியங்கி இருப்பிடம் (IP: ${data.city || 'Unknown'})`
         };
         await handleLocationSuccess(lat, lon, locationData.source);
     } catch (error) {
@@ -216,6 +240,13 @@ async function fallbackToIPGeolocation() {
 }
 
 async function handleLocationSuccess(lat, lon, source) {
+    // Unlock UI
+    const overlay = document.getElementById('location-lock-overlay');
+    const mainContent = document.querySelector('.content-wrapper');
+    
+    if (overlay) overlay.classList.add('hidden');
+    if (mainContent) mainContent.classList.remove('content-locked');
+
     const detailsEl = document.getElementById('location-details');
     updateStatus('இருப்பிடம் கண்டறியப்பட்டது', 'success');
 
